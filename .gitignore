@@ -417,3 +417,5 @@ ExternalAnnotations/
 .vscode/
 cspell.json
 libraries
+# Local settings of the sync test bench
+qa/local/
