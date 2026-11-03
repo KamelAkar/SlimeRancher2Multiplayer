@@ -22,17 +22,12 @@ internal static class OnGameLoadPatch
             if (!transform)
                 continue;
             
-            var networkComponent = transform.GetComponent<NetworkActor>();
-
-            if (networkComponent)
-            {
-                networkComponent.CurrentOwnerId = LocalID;
+            if (transform.GetComponent<NetworkActor>())
                 continue;
-            }
-            
-            var networkComponent2 = transform.gameObject.AddComponent<NetworkActor>();
-            networkComponent2.LocallyOwned = true;
-            networkComponent2.CurrentOwnerId = LocalID;
+
+            // The host simulates every actor until a player who has it loaded is assigned to it.
+            var networkComponent = transform.gameObject.AddComponent<NetworkActor>();
+            networkComponent.LocallyOwned = true;
 
             ActorManager.Actors[actor.value.actorId.Value] = actor.value;
         }

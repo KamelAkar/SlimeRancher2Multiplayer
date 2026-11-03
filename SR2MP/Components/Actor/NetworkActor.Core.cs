@@ -1,15 +1,12 @@
-using System.Collections;
-using Il2CppInterop.Runtime.Attributes;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using Il2CppMonomiPark.SlimeRancher.Player.CharacterController;
 using Il2CppMonomiPark.SlimeRancher.Regions;
 using Il2CppMonomiPark.SlimeRancher.Slime;
 using JetBrains.Annotations;
 using SR2MP.Packets.Actor;
+using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
 using Starlight.Storage;
-using Delegate = Il2CppSystem.Delegate;
-using Type = Il2CppSystem.Type;
 
 namespace SR2MP.Components.Actor;
 
@@ -30,27 +27,8 @@ internal sealed partial class NetworkActor : MonoBehaviour
     public byte  AttemptedGetIdentifiable;
     public bool  CachedLocallyOwned;
 
-    public string CurrentOwnerId = string.Empty;
-
-    private float lastOwnerHeardTime;
-    private float ownerSilenceThreshold;
-    private const float OwnerSilenceMin = 5f;
-    private const float OwnerSilenceMax = 11f;
-
-    internal bool OwnerRecentlyHeard => UnityEngine.Time.time - lastOwnerHeardTime < ownerSilenceThreshold;
-
-    private void UpdateOwnerValidity() => lastOwnerHeardTime = UnityEngine.Time.time;
-
-    private void ResetOwnerValidityTime()
-    {
-        lastOwnerHeardTime = UnityEngine.Time.time;
-        ownerSilenceThreshold = UnityEngine.Random.Range(OwnerSilenceMin, OwnerSilenceMax);
-    }
-
-    private bool? CycleReleasing => cycle?._preparingToRelease;
-    private bool? cachedCycleReleasing;
-
     private Vector3 savedVelocity;
+    private long registeredActorId;
 
     internal bool isSlime;
     internal bool isResource;
@@ -107,7 +85,25 @@ internal sealed partial class NetworkActor : MonoBehaviour
         }
     }
 
+    /// <summary>Whether this machine runs the physics and AI of the actor. Set by the ownership manager.</summary>
     public bool LocallyOwned { get; set; }
+
+    private bool IsHibernating => RegionMember && RegionMember!._hibernating;
+
+    /// <summary>Loaded and not hibernating: only then can this machine simulate the actor.</summary>
+    internal bool IsAwake => !IsDestroyed && gameObject.activeInHierarchy && !IsHibernating;
+
+    /// <summary>The actor's speed, including the speed the game stored when it put the actor to sleep.</summary>
+    internal Vector3 CurrentVelocity
+    {
+        get
+        {
+            if (IsHibernating)
+                return RegionMember!._hibernatingVelocity;
+
+            return rigidbody ? rigidbody.velocity : Vector3.zero;
+        }
+    }
 
     private void InitializeComponents()
     {
@@ -119,7 +115,7 @@ internal sealed partial class NetworkActor : MonoBehaviour
 
         InitializeLabyrinthComponents();
     }
-    
+
     public void Start()
     {
         try
@@ -131,17 +127,14 @@ internal sealed partial class NetworkActor : MonoBehaviour
             }
 
             InitializeComponents();
-
-            CachedLocallyOwned = LocallyOwned;
-            ResetOwnerValidityTime();
-
             GetActorType();
+
+            registeredActorId = ActorId.Value;
+            ActorOwnershipManager.Register(this, registeredActorId);
+            CachedLocallyOwned = LocallyOwned;
 
             SetRigidbodyState(LocallyOwned);
             ApplyLabyrinthSimulationGate();
-
-            if (RegionMember != null)
-                SetupHibernationEvent();
         }
         catch (Exception ex)
         {
@@ -160,83 +153,6 @@ internal sealed partial class NetworkActor : MonoBehaviour
         isPlort    = identModel.TryCast<PlortModel>()   != null;
     }
 
-    private void SetupHibernationEvent()
-    {
-        try
-        {
-            var delegateType = Type.GetType("MonomiPark.SlimeRancher.Regions.RegionMember")
-                ?.GetEvent("BeforeHibernationChanged")
-                ?.EventHandlerType;
-
-            if (delegateType == null)
-                return;
-
-            var hibernationDelegate = Delegate.CreateDelegate(
-                delegateType,
-                Cast<Il2CppSystem.Object>(),
-                nameof(HibernationChanged),
-                true);
-
-            RegionMember?.add_BeforeHibernationChanged(hibernationDelegate.Cast<RegionMember.OnHibernationChange>());
-        }
-        catch (Exception ex)
-        {
-            SrLogger.LogWarning($"Failed to add hibernation event: {ex.Message}");
-        }
-    }
-
-    [HideFromIl2Cpp]
-    private IEnumerator WaitOneFrameOnHibernationChange(bool hibernating)
-    {
-        yield return null;
-
-        if (!IsValid || IsDestroyed)
-            yield break;
-
-        try
-        {
-            var actorId = ActorId;
-
-            if (actorId.Value == 0)
-                yield break;
-
-            LocallyOwned = !hibernating;
-
-            if (hibernating)
-                Main.SendToAllOrServer(new ActorUnloadPacket
-                {
-                    ActorId  = actorId,
-                    SenderId = LocalID
-                });
-            else
-                Main.SendToAllOrServer(new ActorTransferPacket
-                {
-                    ActorId = actorId,
-                    OwnerId = LocalID
-                });
-        }
-        catch (Exception ex)
-        {
-            SrLogger.LogError($"WaitOneFrameOnHibernationChange error: {ex}");
-            IsValid = false;
-        }
-    }
-
-    public void HibernationChanged(bool value)
-    {
-        if (!IsValid || IsDestroyed)
-            return;
-
-        try
-        {
-            ContextShortcuts.StartCoroutine(WaitOneFrameOnHibernationChange(value));
-        }
-        catch (Exception ex)
-        {
-            SrLogger.LogError($"HibernationChanged error: {ex}");
-        }
-    }
-
     public void Update()
     {
         if (IsDestroyed)
@@ -253,7 +169,6 @@ internal sealed partial class NetworkActor : MonoBehaviour
         {
             UpdateResourceState();
             HandleOwnershipChange();
-            HandleCycleReleasing();
 
             UpdateInterpolation();
 
@@ -289,8 +204,6 @@ internal sealed partial class NetworkActor : MonoBehaviour
 
             if (LocallyOwned)
                 RestoreStateOnOwnership();
-            else
-                ResetOwnerValidityTime();
         }
 
         CachedLocallyOwned = LocallyOwned;
@@ -320,29 +233,30 @@ internal sealed partial class NetworkActor : MonoBehaviour
         IsValid     = false;
 
         ResetLabyrinthToVanilla();
+        ActorOwnershipManager.Unregister(this, registeredActorId);
 
-        if (LocallyOwned)
+        if (!LocallyOwned || registeredActorId == 0)
+            return;
+
+        if (SystemContext.Instance != null && SystemContext.Instance.SceneLoader != null && SystemContext.Instance.SceneLoader.IsSceneLoadInProgress)
+            return;
+
+        try
         {
-            if (SystemContext.Instance != null && SystemContext.Instance.SceneLoader != null && SystemContext.Instance.SceneLoader.IsSceneLoadInProgress)
+            // Unloading (zone change, hibernation cleanup) destroys the object but keeps the actor in the world.
+            // Only an actor whose model is gone was really destroyed.
+            if (GameState.TryGetIdentifiableModel(new ActorId(registeredActorId), out _))
                 return;
 
-            try
-            {
-                if (ActorId.Value != 0)
-                {
-                    ActorManager.Actors.Remove(ActorId.Value);
+            ActorManager.Actors.Remove(registeredActorId);
+            ActorOwnershipManager.OnActorDestroyed(registeredActorId);
 
-                    if (Main.Server.IsRunning || Main.Client.IsConnected)
-                    {
-                        var packet = new ActorDestroyPacket { ActorId = ActorId };
-                        Main.SendToAllOrServer(packet);
-                    }
-                }
-            }
-            catch
-            {
-                // ignored
-            }
+            if (Main.Server.IsRunning || Main.Client.IsConnected)
+                Main.SendToAllOrServer(new ActorDestroyPacket { ActorId = new ActorId(registeredActorId) });
+        }
+        catch (Exception ex)
+        {
+            SrLogger.LogDebug($"NetworkActor.OnDestroy could not report actor {registeredActorId}: {ex.Message}");
         }
     }
 }

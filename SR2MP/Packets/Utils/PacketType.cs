@@ -25,8 +25,10 @@ internal enum PacketType : byte
     ActorDestroy = 20,            // Both Ways                                    High (can be manual)                  On Actor Destroy
     ActorState = 122,             // Both Ways                                    High                                  On Actor State Update
     ActorUpdate = 21,             // Both Ways                                    Very High                             On Actor Position / Rotation Update
-    ActorTransfer = 22,           // Both Ways                                    High (can be manual)                  On Actor Transfer
-    ActorUnload = 23,             // Both Ways                                    High                                  On Actor unloaded
+    ActorOwnership = 123,         // Server -> All Clients                        Medium                                Ownership decisions stamped with epochs
+    ActorInterest = 124,          // Client -> Server                             Medium                                Actors that woke up or fell asleep on a client
+    ActorOwnershipRequest = 125,  // Client -> Server                             Medium                                Handoff ack, vacuum hold and release
+    ActorHandoffState = 126,      // Both Ways                                    Medium                                Last state of an actor during a handoff
     InitialActors = 24,           // Server -> Client                             Low                                   Actors on Load
     ResourceAttach = 25,          // Both Ways                                    Very High                             On Resource Attach
     WorldTime = 26,               // Server -> All Clients                        Very High (depends on join too)       Updates Time
@@ -58,11 +60,8 @@ internal enum PacketType : byte
     InitialAccessDoors = 52,      // Server -> Client                             Low (depends on join)                 Access Doors on Load
     TreasurePod = 53,             // Both Ways                                    Medium (manual)                       On Treasure Pod open
     InitialTreasurePods = 54,     // Server -> Client                             Low (depends on join)                 Treasure Pods on join
-    AmmoIncrement = 55,
-    AmmoAdd = 56,
-    AmmoAddToSlot = 57,
-    AmmoDecrement = 58,
-    AmmoDecrementSelected = 59,
+    SiloState = 56,               // Server -> All Clients                        Medium                                Exact content of a shared storage (host authority)
+    SiloOperation = 57,           // Client -> Server                             Medium                                A client's change to a shared storage
     SiloSlotSelect = 60,          // Both Ways                                    Medium (manual)                       On Silo Slot Switch
     RefineryUpdate = 61,          // Both Ways                                    Medium (can be manual)                On Refinery Change
     InitialRefinery = 62,         // Server -> Client                             Low (depends on join)                 Refinery items on join

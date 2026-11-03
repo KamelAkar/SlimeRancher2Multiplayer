@@ -1,7 +1,6 @@
 using System.Collections;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
 using SR2MP.Components.Actor;
-using SR2MP.Packets.Actor;
 
 namespace SR2MP.Shared.Managers;
 
@@ -24,26 +23,7 @@ internal sealed partial class NetworkActorManager
         ActorTypes[-1] = null!;
 
         StartCoroutine(ZoneLoadingLoop());
-        StartCoroutine(OwnUnownedSlimesLoop());
-    }
-
-    private IEnumerator OwnUnownedSlimesLoop()
-    {
-        while (true)
-        {
-            yield return new WaitForSeconds(2f);
-
-            if (!Main.Server.IsRunning && !Main.Client.IsConnected)
-                continue;
-
-            if (!SystemContext.Instance.SceneLoader.IsCurrentSceneGroupGameplay())
-                continue;
-
-            if (SceneContext.Instance?.player == null)
-                continue;
-
-            TakeOwnershipOfNearby(true);
-        }
+        ActorOwnershipManager.Initialize();
     }
 
     private IEnumerator ZoneLoadingLoop()
@@ -114,7 +94,7 @@ internal sealed partial class NetworkActorManager
                 Actors.Add(model.actorId.Value, model);
             }
 
-            TakeOwnershipOfNearby();
+            // Ownership follows on its own: the new copies report themselves awake and the host assigns them.
         }
     }
 
@@ -135,126 +115,6 @@ internal sealed partial class NetworkActorManager
 
         return result;
     }
-    
-    internal void TakeOwnershipOfNearby(bool onlyUnownedSlimes = false)
-    {
-        var boundsSize = new Vector3(600, 1250, 600);
-        var ownershipBoundsSize = new Vector3(200, 1250, 200);
-        var bounds = new Bounds(SceneContext.Instance.player.transform.position, boundsSize);
-
-        foreach (var actor in Actors.Values.ToArray())
-        {
-            try
-            {
-                if (actor == null)
-                    continue;
-
-                if (!bounds.Contains(actor.lastPosition))
-                    continue;
-
-                if (!actor.TryGetNetworkComponent(out var netActor))
-                    continue;
-
-                if (onlyUnownedSlimes)
-                {
-                    if (netActor.LocallyOwned)
-                        continue;
-
-                    if (netActor.RegionMember?._hibernating == true)
-                        continue;
-
-                    var ownerId = netActor.CurrentOwnerId;
-                    var ownerExists = !string.IsNullOrEmpty(ownerId) && PlayerManager.CheckPlayerExists(ownerId);
-
-                    if (netActor.isPlort && !ownerExists)
-                    {
-                        try { Destroyer.DestroyAny(actor.GetGameObject(), "SR2MP.UnownedSlimeOwnership"); } catch { /* ignored */ }
-                        continue;
-                    }
-
-                    if (ownerExists
-                        && netActor.OwnerRecentlyHeard
-                        && PlayerObjects.TryGetValue(ownerId, out var playerObj)
-                        && playerObj
-                        && new Bounds(playerObj.transform.position, ownershipBoundsSize).Contains(actor.lastPosition))
-                        continue;
-                }
-
-                var actorId = netActor.ActorId;
-                if (actorId.Value == 0)
-                    continue;
-
-                var packet = new ActorTransferPacket { ActorId = actorId, OwnerId = LocalID };
-                ApplyOwnership(packet);
-                Main.SendToAllOrServer(packet);
-            }
-            catch { /* ignored */ }
-        }
-    }
-    
-    internal void AssignOwnershipOfUnowned()
-    {
-        if (SceneContext.Instance?.player == null)
-            return;
-
-        var bounds = new Vector3(600, 1250, 600);
-
-        var allPlayers = new List<(string PlayerId, Vector3 Position)>
-        {
-            (LocalID, SceneContext.Instance.player.transform.position)
-        };
-
-        foreach (var (playerId, playerObject) in PlayerObjects)
-        {
-            if (playerObject)
-                allPlayers.Add((playerId, playerObject.transform.position));
-        }
-
-        foreach (var actor in Actors.Values.ToArray())
-        {
-            try
-            {
-                if (actor == null)
-                    continue;
-
-                if (!actor.TryGetNetworkComponent(out var netActor))
-                    continue;
-
-                if (netActor.CurrentOwnerId == LocalID || PlayerManager.CheckPlayerExists(netActor.CurrentOwnerId))
-                    continue;
-
-                var actorId = netActor.ActorId;
-                if (actorId.Value == 0)
-                    continue;
-
-                var position = actor.lastPosition;
-                string? newOwner = null;
-                var bestDistance = float.MaxValue;
-
-                foreach (var (playerId, playerPosition) in allPlayers)
-                {
-                    if (!new Bounds(playerPosition, bounds).Contains(position))
-                        continue;
-
-                    var distance = (playerPosition - position).sqrMagnitude;
-
-                    if (distance >= bestDistance)
-                        continue;
-
-                    bestDistance = distance;
-                    newOwner = playerId;
-                }
-
-                if (newOwner == null)
-                    continue;
-
-                var packet = new ActorTransferPacket { ActorId = actorId, OwnerId = newOwner };
-                ApplyOwnership(packet);
-                Main.SendToAllOrServer(packet);
-            }
-            catch { /* ignored */ }
-        }
-    }
 
     public static T[] GetAllOfType<T>() where T : IdentifiableModel
     {
@@ -267,11 +127,10 @@ internal sealed partial class NetworkActorManager
 
         foreach (var ident in identifiables)
         {
-            var casted = ident.value.TryCast<T>(); 
+            var casted = ident.value.TryCast<T>();
             if (casted != null)
                 result.Add(casted);
         }
         return result.ToArray();
     }
-    
 }

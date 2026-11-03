@@ -34,6 +34,7 @@ internal static class OnActorSpawn
             ActorId = id,
             Position = actor.transform.position,
             Rotation = actor.transform.rotation,
+            Velocity = actor.TryGetComponent<Rigidbody>(out var body) ? body.velocity : Vector3.zero,
             SpawnType = (byte)ActorSpawnType.Actor,
             MaterialIndex = (byte)SprinkleMaterialType.none,
             OwnerId = LocalID
@@ -116,7 +117,7 @@ internal static class OnActorSpawn
 
         var networkActor = __result.AddComponent<NetworkActor>();
         networkActor.LocallyOwned = true;
-        networkActor.CurrentOwnerId = LocalID;
+        ActorOwnershipManager.OnLocalSpawn(__result.GetComponent<IdentifiableActor>()._model.actorId.Value);
 
         var actorType = NetworkActorManager.GetPersistentID(original.GetComponent<Identifiable>().identType);
         var sceneGroupId = NetworkSceneManager.GetPersistentID(sceneGroup);

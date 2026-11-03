@@ -10,6 +10,9 @@ internal struct ActorStatePacket : IPacket
 {
     public ActorId ActorId;
 
+    // Ownership epoch of the sender, checked like position updates.
+    public uint Epoch;
+
     public float4 Emotions;
     public bool Sleeping;
 
@@ -29,6 +32,7 @@ internal struct ActorStatePacket : IPacket
     public readonly void Serialise(PacketWriter writer)
     {
         writer.WriteLong(ActorId.Value);
+        writer.WritePackedUInt(Epoch);
         writer.WriteEnum(UpdateType);
 
         switch (UpdateType)
@@ -54,6 +58,7 @@ internal struct ActorStatePacket : IPacket
     public void Deserialise(PacketReader reader)
     {
         ActorId    = new ActorId(reader.ReadLong());
+        Epoch = reader.ReadPackedUInt();
         UpdateType = reader.ReadEnum<ActorUpdateType>();
 
         switch (UpdateType)

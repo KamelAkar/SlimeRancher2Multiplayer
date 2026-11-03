@@ -1,6 +1,7 @@
 using HarmonyLib;
 using SR2MP.Components.Actor;
 using SR2MP.Packets.Actor;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Patches.Actor;
 
@@ -53,6 +54,7 @@ internal static class OnActorDestroy
             return true;
 
         ActorManager.Actors.Remove(actor.GetActorId().Value);
+        ActorOwnershipManager.OnActorDestroyed(actor.GetActorId().Value);
 
         if (!Main.Server.IsRunning && !Main.Client.IsConnected)
             return true;

@@ -200,7 +200,6 @@ public sealed class SR2MPServer
         
         MainThreadDispatcher.Instance.Enqueue(() =>
         {
-            ActorManager.AssignOwnershipOfUnowned();
             NetworkDroneManager.AssignOwnershipOfUnowned();
             NetworkGardenManager.AssignOwnershipOfUnowned();
         });

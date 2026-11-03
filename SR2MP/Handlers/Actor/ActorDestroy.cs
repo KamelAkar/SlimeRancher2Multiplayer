@@ -19,6 +19,8 @@ internal sealed class ActorDestroyHandler : BasePacketHandler<ActorDestroyPacket
         //    return false;
         //}
 
+        ActorOwnershipManager.OnActorDestroyed(packet.ActorId.Value);
+
         if (GameState.TryGetIdentifiableModel(packet.ActorId, out var actor))
         {
             HandlingPacket = true;

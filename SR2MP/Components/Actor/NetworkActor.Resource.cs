@@ -1,5 +1,3 @@
-﻿using SR2MP.Packets.Actor;
-
 namespace SR2MP.Components.Actor;
 
 internal sealed partial class NetworkActor
@@ -86,22 +84,6 @@ internal sealed partial class NetworkActor
                 SrLogger.LogWarning($"Resource {ActorId.Value}: no cached progress on ownership, resetting time (worldTime={now})");
             cycle._model.progressTime = now;
         }
-    }
-
-    private void HandleCycleReleasing()
-    {
-        if (CycleReleasing != cachedCycleReleasing)
-        {
-            if (CycleReleasing == true)
-            {
-                var actorId = ActorId;
-
-                if (actorId.Value != 0)
-                    Main.SendToAllOrServer(new ActorTransferPacket { ActorId = actorId, OwnerId = LocalID });
-            }
-        }
-
-        cachedCycleReleasing = CycleReleasing;
     }
 
     private float GetResourceScaleRatio()

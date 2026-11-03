@@ -30,6 +30,10 @@ public sealed class ClientManager
         return client;
     }
 
+    /// <summary>The player id behind an endpoint, or null for an unknown endpoint.</summary>
+    public string? GetPlayerId(IPEndPoint? endPoint)
+        => endPoint != null && TryGetClient(endPoint, out var client) ? client?.PlayerId : null;
+
     public ClientInfo AddClient(IPEndPoint endPoint, string playerId)
     {
         var clientInfo = $"{endPoint.Address}:{endPoint.Port}";

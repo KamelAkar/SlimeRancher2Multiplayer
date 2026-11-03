@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Net;
 using Il2CppMonomiPark.SlimeRancher.DataModel;
-using Il2CppMonomiPark.SlimeRancher.Player.PlayerItems;
 using Il2CppMonomiPark.SlimeRancher.Slime;
 using Il2CppMonomiPark.SlimeRancher.VFX;
 using SR2MP.Components.Actor;
@@ -25,7 +24,7 @@ internal sealed partial class NetworkActorManager
 
         var networkActor = actor.AddComponent<NetworkActor>();
         networkActor.LocallyOwned = true;
-        networkActor.CurrentOwnerId = LocalID;
+        ActorOwnershipManager.OnLocalSpawn(model.actorId.Value);
 
         Actors[model.actorId.Value] = model;
 
@@ -36,6 +35,7 @@ internal sealed partial class NetworkActorManager
             SceneGroup = (byte)NetworkSceneManager.GetPersistentID(model.sceneGroup),
             Position = actor.transform.position,
             Rotation = actor.transform.rotation,
+            Velocity = actor.TryGetComponent<Rigidbody>(out var body) ? body.velocity : Vector3.zero,
             SpawnType = (byte)ActorSpawnType.Actor,
             OwnerId = LocalID
         };
@@ -167,48 +167,6 @@ internal sealed partial class NetworkActorManager
         sprinkle.SetMaterial((int)material);
     }
 
-    internal static void ApplyOwnership(ActorTransferPacket packet)
-    {
-        if (!ActorManager.Actors.TryGetValue(packet.ActorId.Value, out var actor))
-            return;
-
-        if (!actor.TryGetNetworkComponent(out var component))
-            return;
-        
-        component.CurrentOwnerId = packet.OwnerId;
-
-        var locallyOwned = packet.OwnerId == LocalID;
-
-        if (!locallyOwned)
-        {
-            try
-            {
-                var player = SceneContext.Instance.Player;
-                var gameObject = actor.GetGameObject();
-
-                if (player && gameObject)
-                {
-                    var vacItem = player.GetComponent<PlayerItemController>()._vacuumItem;
-
-                    if (vacItem && vacItem._held == gameObject)
-                    {
-                        vacItem.LockJoint.connectedBody = null;
-                        vacItem._held = null;
-                        vacItem.SetHeldRad(0f);
-                        vacItem._vacMode = VacuumItem.VacMode.NONE;
-                        gameObject.GetComponent<Vacuumable>().Release();
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                SrLogger.LogDebug($"Failed to release actor from vacuum on ownership change: {exception.Message}");
-            }
-        }
-
-        component.LocallyOwned = locallyOwned;
-    }
-    
     private static bool FreeActorIdForGadget(ActorId actorId, IdentifiableType incomingType)
     {
         try

@@ -2,7 +2,6 @@ using System.Reflection;
 using HarmonyLib;
 using Il2CppMonomiPark.SlimeRancher.Player;
 using MelonLoader;
-using SR2MP.Packets.Ammo;
 using SR2MP.Shared.Managers;
 
 namespace SR2MP.Shared.ModSupport;
@@ -53,7 +52,6 @@ internal static class VacuumModificationsIntegration
             }
     
             new HarmonyLib.Harmony("SR2MP.VacuumModifications").Patch(transferMethod,
-                prefix: new HarmonyMethod(typeof(VacuumModificationsIntegration), nameof(TransferPrefix)),
                 postfix: new HarmonyMethod(typeof(VacuumModificationsIntegration), nameof(TransferPostfix)));
         }
         catch (Exception e)
@@ -73,48 +71,13 @@ internal static class VacuumModificationsIntegration
                    .FirstOrDefault(method => method != null);
     }
 
-    private static void TransferPrefix(AmmoSlot? source, out int __state)
-        => __state = source?.Count ?? 0;
-
-    private static void TransferPostfix(AmmoSlot? source, AmmoSlot? target, bool __result, int __state)
+    // The transfer writes slot counts directly, so the storage sync has to be told to compare both sides.
+    private static void TransferPostfix(AmmoSlot? source, AmmoSlot? target, bool __result)
     {
-        if ((!Main.Client.IsConnected && !Main.Server.IsRunning) || HandlingPacket) return;
+        if (!__result)
+            return;
 
-        if (!__result || source == null || target == null) return;
-
-        var transferred = __state - source.Count;
-        if (transferred <= 0) return;
-
-        SendDecrement(source, transferred);
-        SendAdd(target, transferred);
-    }
-    
-    private static void SendDecrement(AmmoSlot slot, int count)
-    {
-        var id = slot.GetPlotID();
-        var index = slot.GetSlotIndex();
-        if (id == null || index == null) return;
-
-        Main.SendToAllOrServer(new AmmoDecrementPacket
-        {
-            SlotIndex = index.Value,
-            Count = count,
-            ID = id
-        });
-    }
-
-    private static void SendAdd(AmmoSlot slot, int count)
-    {
-        var id = slot.GetPlotID();
-        var index = slot.GetSlotIndex();
-        if (id == null || index == null || slot.Id == null) return;
-
-        Main.SendToAllOrServer(new AmmoAddToSlotPacket
-        {
-            Identifiable = NetworkActorManager.GetPersistentID(slot.Id),
-            SlotIndex = index.Value,
-            Count = count,
-            ID = id
-        });
+        SiloSyncManager.OnAmmoChanged(source);
+        SiloSyncManager.OnAmmoChanged(target);
     }
 }

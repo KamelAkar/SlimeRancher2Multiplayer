@@ -29,9 +29,10 @@ internal sealed class ActorSpawnHandler : BasePacketHandler<ActorSpawnPacket>
         // Gadgets have no NetworkActor component
         if (actor.TryGetNetworkComponent(out var networkComponent))
         {
-            networkComponent.CurrentOwnerId = packet.OwnerId;
             networkComponent.LocallyOwned = false;
             networkComponent.CachedLocallyOwned = false;
+            networkComponent.ApplyHandoffState(packet.Position, packet.Rotation, packet.Velocity);
+            ActorOwnershipManager.OnRemoteSpawn(packet.ActorId.Value, packet.OwnerId);
         }
 
         switch (packet.SpawnType)

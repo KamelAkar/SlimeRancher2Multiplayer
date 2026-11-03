@@ -143,8 +143,6 @@ internal sealed class ActorsLoadHandler : BasePacketHandler<InitialActorsPacket>
             }
         }
 
-        ActorManager.TakeOwnershipOfNearby();
-        
         StartCoroutine(NetworkGadgetManager.RelinkGadgets());
         StartCoroutine((NetworkGadgetManager.RepairTeleporterLinks()));
     }

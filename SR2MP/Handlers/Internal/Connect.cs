@@ -2,6 +2,7 @@ using System.Net;
 using SR2MP.Packets;
 using SR2MP.Packets.Internal;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Handlers.Internal;
 
@@ -18,6 +19,20 @@ internal sealed class ConnectHandler : BasePacketHandler<ConnectPacket>
             $"Connect request from {clientEp} with PlayerId: {packet.PlayerId}");
 
         Main.Server.ClientManager.AddClient(clientEp, packet.PlayerId);
+
+        if (packet.ProtocolVersion != SyncProtocol.Version)
+        {
+            SrLogger.LogMessage($"Refused {packet.PlayerId}: protocol {packet.ProtocolVersion}, host uses {SyncProtocol.Version}");
+
+            var denyPacket = new ConnectionDenyPacket
+            {
+                Reason = "Your version of Ranching Together does not match the host's version.\n" +
+                         "Everyone needs the exact same build of the mod."
+            };
+            Main.Server.SendToClient(denyPacket, clientEp);
+            Main.Server.ClientManager.RemoveClient(clientEp);
+            return false;
+        }
 
         var informPacket = new EmptyPacket()
         {

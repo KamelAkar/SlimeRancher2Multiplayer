@@ -1,4 +1,5 @@
 ﻿using SR2MP.Packets.Actor;
+using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
 
 namespace SR2MP.Components.Actor;
@@ -27,8 +28,6 @@ internal sealed partial class NetworkActor
         if (LocallyOwned || IsDestroyed)
             return;
 
-        UpdateOwnerValidity();
-
         previousPosition   = transform.position;
         previousRotation   = transform.rotation;
         nextPosition       = packet.Position;
@@ -37,7 +36,30 @@ internal sealed partial class NetworkActor
         interpolationStart = UnityEngine.Time.unscaledTime;
         interpolationEnd   = interpolationStart + Timers.ActorTimer;
     }
-    
+
+    /// <summary>The speed to resume with if this machine simulates the actor again.</summary>
+    internal void RememberVelocity(Vector3 velocity) => savedVelocity = velocity;
+
+    /// <summary>
+    /// Jumps straight to a state instead of interpolating: the last state of an old owner during a handoff, or the
+    /// starting state of an actor another machine just spawned.
+    /// </summary>
+    internal void ApplyHandoffState(Vector3 position, Quaternion rotation, Vector3 velocity)
+    {
+        if (IsDestroyed)
+            return;
+
+        transform.position = position;
+        transform.rotation = rotation;
+        previousPosition   = position;
+        nextPosition       = position;
+        previousRotation   = rotation;
+        nextRotation       = rotation;
+        savedVelocity      = velocity;
+        interpolationStart = 0f;
+        interpolationEnd   = 0f;
+    }
+
     private void UpdateInterpolation()
     {
         if (LocallyOwned || IsDestroyed || interpolationEnd <= interpolationStart)
@@ -97,12 +119,13 @@ internal sealed partial class NetworkActor
 
         var actorId = ActorId;
 
-        if (actorId.Value == 0)
+        if (actorId.Value == 0 || !ActorOwnershipManager.TryGetPublishEpoch(actorId.Value, out var epoch))
             return;
 
         Main.SendToAllOrServer(new ActorUpdatePacket
         {
             ActorId  = actorId,
+            Epoch    = epoch,
             Position = currentPosition,
             Rotation = currentRotation,
             Velocity = currentVelocity

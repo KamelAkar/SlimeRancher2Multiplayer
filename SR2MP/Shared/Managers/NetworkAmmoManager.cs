@@ -22,25 +22,10 @@ internal static class NetworkAmmoManager
         // -PinkTarr
         foreach (var def in Resources.FindObjectsOfTypeAll<AmmoSlotDefinition>())
             slotDefinitions[def.name.Hash16()] = def;
+
+        SiloSyncManager.Initialize();
     }
 
-    public static int GetNextSlot(this AmmoSlotManager ammo, IdentifiableType id)
-    {
-        for (var i = 0; i < ammo._ammoModel.Slots.Count; i++)
-        {
-            var isSlotEmptyOrSameType = ammo.Slots[i]!._count == 0 || ammo.Slots[i]!._id == id;
-
-            var isSlotFull = ammo.Slots[i]!.Count >= ammo.Slots[i]!.MaxCount;
-
-            if (isSlotEmptyOrSameType && isSlotFull) break;
-
-            if (isSlotEmptyOrSameType)
-                return i;
-        }
-
-        return -1;
-    }
-    
     public static void ApplySlotData(this AmmoSlotManager ammo, NetworkAmmo networkAmmo)
     {
         foreach (var (slotIndex, networkSlot) in networkAmmo.AmmoSlots)
@@ -59,6 +44,10 @@ internal static class NetworkAmmoManager
                 ammoModelSlot.MaxCount = networkSlot.MaxCount;
             }
         }
+
+        var id = ammo.GetPlotID();
+        if (id != null)
+            SiloSyncManager.Capture(id, ammo);
     }
     
     private static readonly Dictionary<ushort, AmmoSlotDefinition> slotDefinitions = new();
@@ -73,18 +62,12 @@ internal static class NetworkAmmoManager
     public static string? GetPlotID(this AmmoSlot slot)
         => slotToAmmo.TryGetValue(slot.Pointer, out var ammoTuple) ? ammoTuple.ammo.GetPlotID() : null;
 
-    public static int? GetSlotIndex(this AmmoSlot slot)
-    {
-        if (slotToAmmo.TryGetValue(slot.Pointer, out var ammoTuple))
-            return ammoTuple.index;
-
-        return null;
-    }
-
     // public static AmmoSlotManager? GetAmmo(this AmmoSlot slot)
     //     => slotToAmmo.TryGetValue(slot.Pointer, out var ammoTuple) ? ammoTuple.ammo : null;
 
     public static AmmoSlotManager? GetAmmo(string? id) => IDToAmmo!.GetValueOrDefault(id);
+
+    internal static IReadOnlyDictionary<string, AmmoSlotManager> RegisteredAmmo => IDToAmmo;
 
     private static void ClearAmmoCache()
     {
@@ -104,6 +87,8 @@ internal static class NetworkAmmoManager
             var slot = ammo.Slots[i];
             slotToAmmo[slot!.Pointer] = (ammo, i);
         }
+
+        SiloSyncManager.Capture(id, ammo);
     }
 
     public static void RegisterAmmoPointer(this SiloStorage siloStorage)

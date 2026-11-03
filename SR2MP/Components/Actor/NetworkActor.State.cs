@@ -1,5 +1,6 @@
 ﻿using Il2CppMonomiPark.SlimeRancher.DataModel;
 using SR2MP.Packets.Actor;
+using SR2MP.Shared.Managers;
 using SR2MP.Shared.Utils;
 using Unity.Mathematics;
 
@@ -35,10 +36,12 @@ internal sealed partial class NetworkActor
 
         forceStateSyncTimer = 0f;
 
-        if (ActorId.Value == 0)
+        if (ActorId.Value == 0 || !ActorOwnershipManager.TryGetPublishEpoch(ActorId.Value, out var epoch))
             return;
 
-        Main.SendToAllOrServer(BuildStatePacket(ActorId));
+        var packet = BuildStatePacket(ActorId);
+        packet.Epoch = epoch;
+        Main.SendToAllOrServer(packet);
     }
 
     private bool ShouldUpdateState()

@@ -1,4 +1,5 @@
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Packets.Internal;
 
@@ -14,6 +15,9 @@ internal sealed class ConnectionApprovePacket : IPacket
     public bool AllowCheats;
 
     public List<ModNetData> NetData;
+
+    // Hosts older than the protocol check send nothing here and read as version 0.
+    public ushort ProtocolVersion = SyncProtocol.Version;
 
     public PacketType Type => PacketType.ConnectionApprove;
     public PacketReliability Reliability => PacketReliability.Reliable;
@@ -39,6 +43,7 @@ internal sealed class ConnectionApprovePacket : IPacket
         writer.WritePackedInt(RainbowMoney);
 
         writer.WriteList(NetData, PacketWriterDels.NetObject<ModNetData>.Writer);
+        writer.WriteUShort(ProtocolVersion);
     }
 
     public void Deserialise(PacketReader reader)
@@ -58,6 +63,7 @@ internal sealed class ConnectionApprovePacket : IPacket
         RainbowMoney = reader.ReadPackedInt();
 
         NetData = reader.ReadList(PacketReaderDels.NetObject<ModNetData>.Reader)!;
+        ProtocolVersion = reader.BytesRemaining >= sizeof(ushort) ? reader.ReadUShort() : (ushort)0;
     }
 }
 

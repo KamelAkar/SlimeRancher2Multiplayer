@@ -5,14 +5,20 @@ using SR2MP.Components.Actor;
 using SR2MP.Handlers.Internal;
 using SR2MP.Packets.Actor;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Managers;
 
 namespace SR2MP.Handlers.Actor;
 
 [PacketHandler((byte)PacketType.ActorState)]
 internal sealed class ActorStateHandler : BasePacketHandler<ActorStatePacket>
 {
-    protected override bool Handle(ActorStatePacket packet, IPEndPoint? _)
+    protected override bool Handle(ActorStatePacket packet, IPEndPoint? clientEp)
     {
+        // Same rule as positions: only the owner at the current epoch may change the actor's state.
+        var sender = IsServerSide ? Main.Server.ClientManager.GetPlayerId(clientEp) : null;
+        if ((IsServerSide && sender == null) || !ActorOwnershipManager.AcceptUpdate(packet.ActorId.Value, sender, packet.Epoch))
+            return false;
+
         if (!ActorManager.Actors.TryGetValue(packet.ActorId.Value, out var model))
             return true;
 

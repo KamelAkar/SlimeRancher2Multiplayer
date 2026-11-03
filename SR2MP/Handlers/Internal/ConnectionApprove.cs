@@ -2,9 +2,11 @@ using System.Net;
 using Il2CppMonomiPark.SlimeRancher.Economy;
 using SR2MP.Api;
 using SR2MP.Components.Player;
+using SR2MP.Components.UI;
 using SR2MP.Packets.Internal;
 using SR2MP.Packets.Player;
 using SR2MP.Packets.Utils;
+using SR2MP.Shared.Utils;
 
 namespace SR2MP.Handlers.Internal;
 
@@ -13,6 +15,15 @@ internal sealed class ConnectionApproveHandler : BasePacketHandler<ConnectionApp
 {
     protected override bool Handle(ConnectionApprovePacket packet, IPEndPoint? _)
     {
+        if (packet.ProtocolVersion != SyncProtocol.Version)
+        {
+            SrLogger.LogMessage($"Host uses protocol {packet.ProtocolVersion}, this build uses {SyncProtocol.Version}: disconnecting");
+            MultiplayerUI.Instance.RegisterSystemMessage("The host runs a different version of Ranching Together!",
+                $"SYSTEM_PROTOCOL_MISMATCH_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", MultiplayerUI.SystemMessageClose);
+            Main.Client.Disconnect();
+            return false;
+        }
+
         if (packet.InitialJoin)
         {
             var joinPacket = new PlayerJoinPacket

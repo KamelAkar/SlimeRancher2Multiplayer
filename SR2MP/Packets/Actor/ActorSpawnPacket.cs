@@ -12,6 +12,9 @@ internal struct ActorSpawnPacket : IPacket
     public Quaternion Rotation;
     public Vector3 Position;
 
+    // A launched item is already moving: without its speed the other copies would start it at rest.
+    public Vector3 Velocity;
+
     public int ActorType;
     public byte SceneGroup;
     
@@ -36,6 +39,7 @@ internal struct ActorSpawnPacket : IPacket
         writer.WritePackedLong(ActorId.Value);
         writer.WriteVector3(Position);
         writer.WriteQuaternion(Rotation);
+        writer.WriteVector3(Velocity);
         writer.WritePackedInt(ActorType);
         writer.WriteByte(SceneGroup);
         writer.WriteByte(SpawnType);
@@ -67,6 +71,7 @@ internal struct ActorSpawnPacket : IPacket
         ActorId = new ActorId(reader.ReadPackedLong());
         Position = reader.ReadVector3();
         Rotation = reader.ReadQuaternion();
+        Velocity = reader.ReadVector3();
         ActorType = reader.ReadPackedInt();
         SceneGroup = reader.ReadByte();
         SpawnType = reader.ReadByte();
