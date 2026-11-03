@@ -15,7 +15,8 @@ Slime Rancher 2 bot, extended here.
 | Launch while apart | the client launches a slime: it keeps flying, never snaps back to the launch point, and the launcher simulates it during the flight |
 | Launch side by side | the same, plus the host's copy ends where the client's is and exactly one copy simulates the slime |
 | Silo input | the client drops 5 carrots into a silo input: both copies end with the same content and no item is counted twice |
-| Silo spam | the client puts in and takes out one item per frame, 60 times: both copies end with the same content and nothing is created |
+| Silo spam | the client takes out and puts back one item per frame, 60 times: both copies end with the same content and nothing is created or lost |
+| Plort collector | the client drops 5 plorts by a collector and starts it: both copies end with the same content and no plort is stored twice |
 
 It also hashes the real save folder and the real `Mods` folder before and after, and fails if anything changed.
 

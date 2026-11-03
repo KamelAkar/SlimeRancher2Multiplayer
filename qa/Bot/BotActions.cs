@@ -35,6 +35,10 @@ public sealed partial class BotMod
             case "watch": watchedActors[args[1]] = long.Parse(args[0], CultureInfo.InvariantCulture); break;
             case "watch_silo": watchedCatchers.Add(int.Parse(args[0])); break;
             case "silo_spam": QueueSiloSpam(int.Parse(args[0]), args[1], int.Parse(args[2])); break;
+            case "teleport_collector": TeleportToCollector(int.Parse(args[0])); break;
+            case "collect": StartCollector(int.Parse(args[0])); break;
+            case "spawn_collector": SpawnNearCollector(args[0], int.Parse(args[1]), int.Parse(args[2])); break;
+            case "watch_collector": watchedCollectors.Add(int.Parse(args[0])); break;
             default: Event("unknown command " + name); break;
         }
     }
@@ -209,5 +213,57 @@ public sealed partial class BotMod
         }
 
         Event($"silo_spam: queued {count} steps of {type.name} on silo {index} slot {slot}");
+    }
+
+    /// <summary>Plort collectors sorted by position, so both copies give the same index to the same collector.</summary>
+    private static List<PlortCollector> Collectors()
+        => UnityEngine.Object.FindObjectsOfType<PlortCollector>()
+            .Where(collector => collector && collector._storage)
+            .OrderBy(collector => Mathf.Round(collector.transform.position.x))
+            .ThenBy(collector => Mathf.Round(collector.transform.position.z))
+            .ToList();
+
+    private void TeleportToCollector(int index)
+    {
+        var collectors = Collectors();
+        if (index >= collectors.Count)
+        {
+            Event($"teleport_collector: only {collectors.Count} collectors");
+            return;
+        }
+
+        MovePlayer(collectors[index].transform.position + Vector3.up * 3f);
+        Event($"teleported to collector {index} at {collectors[index].transform.position}");
+    }
+
+    private void StartCollector(int index)
+    {
+        var collectors = Collectors();
+        if (index >= collectors.Count)
+        {
+            Event($"collect: only {collectors.Count} collectors");
+            return;
+        }
+
+        collectors[index].StartCollection();
+        Event($"collect: started collector {index}");
+    }
+
+    /// <summary>Drops plorts just above a collector, spread on a small circle so they do not stack.</summary>
+    private void SpawnNearCollector(string fragment, int index, int count)
+    {
+        var collectors = Collectors();
+        if (index >= collectors.Count)
+        {
+            Event($"spawn_collector: only {collectors.Count} collectors");
+            return;
+        }
+
+        var center = collectors[index].transform.position + Vector3.up * 1.5f;
+        for (var i = 0; i < count; i++)
+        {
+            var angle = i * Mathf.PI * 2f / count;
+            Spawn(fragment, $"P{i}", center + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * 1.5f, Vector3.zero);
+        }
     }
 }

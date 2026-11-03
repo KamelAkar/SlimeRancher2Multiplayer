@@ -8,93 +8,11 @@ silo duplicated food. Prints RESULT: PASS or RESULT: FAIL (exit code 0 or 1).
 Needs coop-anything tools/gamepool and instances provisioned from a copy of the game (see qa/README.md).
 The real save folder and install are hashed before and after; any change is a FAIL.
 """
-import argparse, hashlib, json, math, os, shutil, subprocess, sys, time
+import argparse, json, os, sys, time, traceback
 from pathlib import Path
 
-HOST_ID, CLIENT_ID = "PLAYER_QAHOST001", "PLAYER_QACLNT002"
-PORT = 1919
-checks = []
-
-
-def check(name, ok, detail=""):
-    checks.append((name, bool(ok), detail))
-    print(f"[{'PASS' if ok else 'FAIL'}] {name} {detail}", flush=True)
-    return ok
-
-
-def tree_hash(root):
-    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(root.rglob("*")) if p.is_file()}
-
-
-class Bench:
-    def __init__(self, settings):
-        self.s = settings
-        self.instances = Path(settings["instances_root"])
-        self.sequence = {0: 0, 1: 0}
-
-    def gamepool(self, *args):
-        env = dict(os.environ, GAMEPOOL_DIR=self.s["gamepool_dir"])
-        result = subprocess.run([sys.executable, "-I", self.s["gamepool_script"], "--config", self.s["gamepool_config"], *args],
-                                capture_output=True, text=True, timeout=900, env=env)
-        print(result.stdout.strip(), result.stderr.strip(), flush=True)
-        return result.returncode
-
-    def deploy(self, index, role, save, player_id):
-        root = self.instances / str(index)
-        for old in (root / "Mods").glob("SR2MP*.dll"):
-            old.unlink()
-        shutil.copy2(self.s["sr2mp_dll"], root / "Mods" / "SR2MP.dll")
-        shutil.copy2(self.s["bot_dll"], root / "Mods" / "CoopQA.Bot.dll")
-        shutil.copy2(self.s["save_isolation_dll"], root / "Plugins" / "CoopQA.SaveIsolation.dll")
-
-        save_dir = root / "LocalLow/MonomiPark/SlimeRancher2/Steam" / self.s["steamid"]
-        if save_dir.exists():
-            shutil.rmtree(save_dir)
-        save_dir.mkdir(parents=True)
-        shutil.copy2(Path(self.s["saves_dir"]) / save, save_dir / save)
-
-        (root / "UserData/CoopQA").mkdir(parents=True, exist_ok=True)
-        for name in ("cmd.txt", "state.json"):
-            (root / "UserData/CoopQA" / name).unlink(missing_ok=True)
-        (root / "UserData/CoopQA.Bot.ini").write_text(
-            f"role={role}\nplayer_id={player_id}\nsave={(save_dir / save).as_posix()}\n", encoding="utf-8")
-
-        # Without MelonLoader the isolation plugin never runs and the copy would write to the real save folder.
-        required = ["version.dll", "MelonLoader/net6/MelonLoader.dll", "Plugins/CoopQA.SaveIsolation.dll",
-                    "UserData/CoopQA.SaveRoot.txt", "Mods/Starlight.dll"]
-        missing = [name for name in required if not (root / name).exists()]
-        if missing:
-            sys.exit(f"copy {index} is not ready to run safely, missing: {', '.join(missing)} (see qa/README.md)")
-
-    def state(self, index):
-        try:
-            return json.loads((self.instances / str(index) / "UserData/CoopQA/state.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-
-    def cmd(self, index, text):
-        self.sequence[index] += 1
-        with open(self.instances / str(index) / "UserData/CoopQA/cmd.txt", "a", encoding="utf-8") as handle:
-            handle.write(f"{self.sequence[index]} {text}\n")
-
-
-def wait(fn, timeout):
-    start = time.time()
-    while time.time() - start < timeout:
-        value = fn()
-        if value:
-            return value
-        time.sleep(0.5)
-    return None
-
-
-def distance(a, b):
-    return math.dist(a, b) if a and b else float("inf")
-
-
-def actor(bench, index, tag):
-    return bench.state(index).get("actors", {}).get(tag, {})
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I leaves the script folder out of the import path
+from sync_bench import CLIENT_ID, HOST_ID, PORT, Bench, actor, check, checks, distance, tree_hash, wait
 
 
 def launch_scenario(bench, tag, label):
@@ -116,10 +34,12 @@ def launch_scenario(bench, tag, label):
         return
 
     origin = client_track[0]
-    farthest = max(distance(origin, p) for p in client_track)
-    final = distance(origin, client_track[-1])
-    check(f"{label}: the slime moved on the client", farthest > 2, f"farthest={farthest:.1f} m")
-    check(f"{label}: no snap back to the launch point", final >= 0.6 * farthest, f"final={final:.1f} farthest={farthest:.1f}")
+    away = [distance(origin, p) for p in client_track]
+    print(f"   {label}: distance from the launch point every 0.25 s: {[round(d, 1) for d in away]}", flush=True)
+    # A live slime hops around after landing, but a snap back is a jump of meters toward the launch point at once.
+    backward = max((a - b for a, b in zip(away, away[1:])), default=0)
+    check(f"{label}: the slime moved on the client", max(away) > 2, f"farthest={max(away):.1f} m")
+    check(f"{label}: no snap back to the launch point", backward < 3, f"largest step back={backward:.1f} m in 0.25 s")
     check(f"{label}: the launcher simulates it during the flight", owned_early and all(owned_early), str(owned_early))
 
     host_final = samples[-1][2]
@@ -201,6 +121,32 @@ def silo_scenario(bench):
     check("silo: take/put spam created or lost nothing", total(host) == before_spam, f"{before_spam} -> {total(host)}")
 
 
+def collector_scenario(bench):
+    """The client drops five plorts by a plort collector and starts it: each plort must be stored once, on both."""
+    for index in (0, 1):
+        for collector in range(6):
+            bench.cmd(index, f"watch_collector {collector}")
+    time.sleep(3)
+    totals = bench.state(0).get("collectors", {})
+    collector = next((int(i) for i, count in sorted(totals.items()) if 0 < count <= 90), None)
+    if not check("collector: found a collector with room", collector is not None, str(totals)):
+        return
+    for index in (0, 1):
+        bench.cmd(index, f"teleport_collector {collector}")
+    time.sleep(8)
+    before = bench.state(0).get("collectors", {}).get(str(collector))
+    bench.cmd(1, f"spawn_collector PinkPlort {collector} 5")
+    time.sleep(4)
+    bench.cmd(1, f"collect {collector}")
+    time.sleep(15)
+    host = bench.state(0).get("collectors", {}).get(str(collector))
+    client = bench.state(1).get("collectors", {}).get(str(collector))
+    gained = (host or 0) - (before or 0)
+    check("collector: same content on both", host == client, f"{host} vs {client}")
+    check("collector: the plorts were collected", gained >= 1, f"gained {gained}")
+    check("collector: no plort stored twice", gained <= 5, f"gained {gained} for 5 plorts")
+
+
 def run(bench, host_ip):
     if not check("both copies started", bench.gamepool("up", "--n", "2") == 0):
         return
@@ -224,6 +170,7 @@ def run(bench, host_ip):
     launch_scenario(bench, "near", "launch side by side")
 
     silo_scenario(bench)
+    collector_scenario(bench)
 
     for index in (0, 1):
         print(f"copy {index} events:", *bench.state(index).get("events", [])[-15:], sep="\n   ")
@@ -248,6 +195,9 @@ def main():
     bench.deploy(1, "client", settings["client_save"], CLIENT_ID)
     try:
         run(bench, args.host_ip)
+    except Exception:  # a crashed scenario must show up as a failure, not as a shorter run
+        traceback.print_exc()
+        check("all scenarios ran", False)
     finally:
         if not args.keep:
             bench.gamepool("down")
@@ -261,4 +211,5 @@ def main():
         sys.exit(0 if passed == len(checks) else 1)
 
 
-main()
+if __name__ == "__main__":
+    main()

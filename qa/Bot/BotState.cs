@@ -19,6 +19,9 @@ public sealed partial class BotMod
     // Silo inputs whose storage content to report, by index in Catchers().
     private readonly HashSet<int> watchedCatchers = new();
 
+    // Plort collectors whose storage content to report, by index in Collectors().
+    private readonly HashSet<int> watchedCollectors = new();
+
     private void WriteState()
     {
         var state = new Dictionary<string, object>
@@ -41,6 +44,7 @@ public sealed partial class BotMod
             state["pos"] = Position(scene.Player.transform.position);
             state["actors"] = ActorReports();
             state["silos"] = SiloReports();
+            state["collectors"] = CollectorReports();
         }
 
         if (sr2mp != null)
@@ -142,6 +146,32 @@ public sealed partial class BotMod
             }
 
             reports[index.ToString()] = new Dictionary<string, object> { ["slot"] = catchers[index].SlotIdx, ["slots"] = slots };
+        }
+
+        return reports;
+    }
+
+    private Dictionary<string, object> CollectorReports()
+    {
+        var reports = new Dictionary<string, object>();
+        if (watchedCollectors.Count == 0)
+            return reports;
+
+        var collectors = Collectors();
+        foreach (var index in watchedCollectors)
+        {
+            if (index >= collectors.Count)
+                continue;
+
+            var total = 0;
+            var ammo = collectors[index]._storage.GetRelevantAmmo();
+            if (ammo?.Slots != null)
+            {
+                foreach (var slot in ammo.Slots)
+                    total += slot?.Count ?? 0;
+            }
+
+            reports[index.ToString()] = total;
         }
 
         return reports;
